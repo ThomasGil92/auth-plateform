@@ -20,6 +20,7 @@ export default {
           throw new Error("User not found");
         }
         const passwordMatch = await bcrypt.compare(password, user.password);
+       
         if (!passwordMatch) throw new Error("Wrong password");
         return user;
       },
