@@ -4,11 +4,13 @@ import { Button } from "../ui/button";
 import { FaGithub } from "react-icons/fa";
 import { signIn } from "next-auth/react";
 import { DEFAULT_LOGIN_REDIRECT } from "@/routes";
+import { useSearchParams } from "next/navigation";
 
 export const Social = () => {
+  const callBackUrl = useSearchParams().get("callbackUrl");
   const onClick = (provider: "google" | "github") => {
     signIn(provider, {
-      callbackUrl: DEFAULT_LOGIN_REDIRECT,
+      callbackUrl: callBackUrl || DEFAULT_LOGIN_REDIRECT,
     });
   };
   return (
@@ -17,7 +19,9 @@ export const Social = () => {
         size='lg'
         className='w-full'
         variant={"outline"}
-        onClick={() => {onClick("google")}}
+        onClick={() => {
+          onClick("google");
+        }}
       >
         <FcGoogle className='size-5' />
       </Button>

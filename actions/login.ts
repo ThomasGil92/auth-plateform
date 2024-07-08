@@ -1,5 +1,5 @@
 "use server";
-import bcrypt from "bcryptjs"
+import bcrypt from "bcryptjs";
 import { signIn } from "@/auth";
 import { getTwoFactorConfirmationByUserId } from "@/data/two-factor-confirmation";
 import { getTwoFactorTokenByEmail } from "@/data/two-factor-token";
@@ -15,7 +15,7 @@ import { LoginSchema } from "@/schemas";
 import { AuthError } from "next-auth";
 import { z } from "zod";
 
-export const login = async (values: z.infer<typeof LoginSchema>) => {
+export const login = async (values: z.infer<typeof LoginSchema>,callbackUrl?:string) => {
   const validatedFields = LoginSchema.safeParse(values);
   if (!validatedFields.success) {
     return { error: "Invalid fields!" };
@@ -42,64 +42,68 @@ export const login = async (values: z.infer<typeof LoginSchema>) => {
     };
   }
 
-if (existingUser.isTwoFactorEnabled && existingUser.email) {
-  if (code) {
-    const twoFactorToken = await getTwoFactorTokenByEmail(existingUser.email);
-    if (!twoFactorToken||twoFactorToken.token !== code) {
-      return { error: "Invalid code!" };
-    }
-    
-    const hasExpires = twoFactorToken.expires.getTime() > new Date().getTime();
-    if (!hasExpires) {
-      return { error: "Code expired!" };
-    }
-    await prisma.twoFactorToken.delete({ where: { id: twoFactorToken.id } });
+  if (existingUser.isTwoFactorEnabled && existingUser.email) {
+    if (code) {
+      const twoFactorToken = await getTwoFactorTokenByEmail(existingUser.email);
+      console.log(twoFactorToken, code);
+      if (!twoFactorToken || twoFactorToken.token !== code) {
+        console.log("error is here")
+        return { error: "Invalid code!" };
+      }
 
-    const existingConfirmation = await getTwoFactorConfirmationByUserId(
-      existingUser.id,
-    );
-    if (existingConfirmation) {
-      await prisma.twoFactorConfirmation.delete({
-        where: { id: existingConfirmation.id },
+      const hasExpires =
+        twoFactorToken.expires.getTime() > new Date().getTime();
+      if (!hasExpires) {
+        return { error: "Code expired!" };
+      }
+      await prisma.twoFactorToken.delete({ where: { id: twoFactorToken.id } });
+
+      const existingConfirmation = await getTwoFactorConfirmationByUserId(
+        existingUser.id,
+      );
+      if (existingConfirmation) {
+        await prisma.twoFactorConfirmation.delete({
+          where: { id: existingConfirmation.id },
+        });
+      }
+      await prisma.twoFactorConfirmation.create({
+        data: {
+          userId: existingUser.id,
+        },
       });
+    } else {
+      const twoFactorToken = await generateTwoFactorToken(existingUser.email);
+      const isPasswordMatch = await bcrypt.compare(
+        password,
+        existingUser.password,
+      );
+      if (!isPasswordMatch) {
+        return { error: "Invalid password!" };
+      }
+      await sendTwoFactorTokenEmail(twoFactorToken.email, twoFactorToken.token);
+      return {
+        twoFactor: true,
+      };
     }
-    await prisma.twoFactorConfirmation.create({
-      data: {
-        userId: existingUser.id,
-      },
+  }
+
+  try {
+    await signIn("credentials", {
+      email,
+      password,
+      redirectTo: callbackUrl || DEFAULT_LOGIN_REDIRECT,
     });
-  } else {
-    const twoFactorToken = await generateTwoFactorToken(existingUser.email);
-    const isPasswordMatch = await bcrypt.compare(password, existingUser.password);
-    if (!isPasswordMatch) {
-      return { error: "Invalid password!" };
-    }
-    await sendTwoFactorTokenEmail(twoFactorToken.email, twoFactorToken.token);
-    return {
-      twoFactor: true,
-    };
-  }
-}
 
-try {
-  await signIn("credentials", {
-    email,
-    password,
-    redirectTo: DEFAULT_LOGIN_REDIRECT,
-  });
-
-  return { success: "You are logged in!" };
-} catch (error) {
-  if (error instanceof AuthError) {
-    switch (error.type) {
-      case "CredentialsSignin":
-        return { error: "Invalid email or password!" };
-      default:
-        return { error: "Something went wrong!" };
+    return { success: "You are logged in!" };
+  } catch (error) {
+    if (error instanceof AuthError) {
+      switch (error.type) {
+        case "CredentialsSignin":
+          return { error: "Invalid email or password!" };
+        default:
+          return { error: "Something went wrong!" };
+      }
     }
+    throw error;
   }
-  throw error;
-}
-  
-  
 };
